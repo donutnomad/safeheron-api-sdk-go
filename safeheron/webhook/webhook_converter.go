@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Safeheron/safeheron-api-sdk-go/safeheron/utils"
+	"github.com/donutnomad/safeheron-api-sdk-go/safeheron/utils"
 )
 
 type WebhookConverter struct {

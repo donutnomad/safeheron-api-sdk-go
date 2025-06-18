@@ -11,7 +11,7 @@
 safeheron-api-sdk-go is compatible with modern Go releases in module mode, with Go installed:
 
 ```bash
-go get github.com/Safeheron/safeheron-api-sdk-go
+go get github.com/donutnomad/safeheron-api-sdk-go
 ```
 
 will resolve and add the package to the current development module, along with its dependencies.
@@ -19,14 +19,14 @@ will resolve and add the package to the current development module, along with i
 Alternatively the same can be achieved if you use import in a package:
 
 ```go
-import "github.com/Safeheron/safeheron-api-sdk-go/safeheron"
+import "github.com/donutnomad/safeheron-api-sdk-go/safeheron"
 ```
 
 and run `go get` without parameters.
 
 # Usage
 ```go
-import "github.com/Safeheron/safeheron-api-sdk-go/safeheron"
+import "github.com/donutnomad/safeheron-api-sdk-go/safeheron"
 ```
 
 > Take [`/v1/account/create`](https://docs.safeheron.com/api/index.html) as an example to explain, the complete code can be found in `demo/api_demo` directory

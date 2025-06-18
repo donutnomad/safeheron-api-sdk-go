@@ -12,8 +12,8 @@ import (
 	"time"
 
 	ethUnit "github.com/DeOne4eg/eth-unit-converter"
-	"github.com/Safeheron/safeheron-api-sdk-go/safeheron"
-	"github.com/Safeheron/safeheron-api-sdk-go/safeheron/api"
+	"github.com/donutnomad/safeheron-api-sdk-go/safeheron"
+	"github.com/donutnomad/safeheron-api-sdk-go/safeheron/api"
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"

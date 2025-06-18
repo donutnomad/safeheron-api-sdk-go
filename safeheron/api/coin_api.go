@@ -1,7 +1,7 @@
 package api
 
 import (
-	"github.com/Safeheron/safeheron-api-sdk-go/safeheron"
+	"github.com/donutnomad/safeheron-api-sdk-go/safeheron"
 )
 
 type CoinApi struct {

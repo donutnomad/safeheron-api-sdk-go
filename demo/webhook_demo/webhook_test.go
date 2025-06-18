@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/Safeheron/safeheron-api-sdk-go/safeheron/webhook"
+	"github.com/donutnomad/safeheron-api-sdk-go/safeheron/webhook"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )

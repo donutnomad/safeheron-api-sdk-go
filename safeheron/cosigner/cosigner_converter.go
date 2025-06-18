@@ -5,32 +5,44 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/Safeheron/safeheron-api-sdk-go/safeheron/utils"
+	"github.com/donutnomad/safeheron-api-sdk-go/safeheron/utils"
 )
 
 type CoSignerConverter struct {
 	Config CoSignerConfig
 }
 
-func (c *CoSignerConfig) getApprovalCallbackServicePrivateKey() string {
+func (c *CoSignerConfig) getApprovalCallbackServicePrivateKey() ([]byte, error) {
 	//Supports both approvalCallbackServicePrivateKey and bizPrivKey
 	if c.ApprovalCallbackServicePrivateKey == "" {
 		c.ApprovalCallbackServicePrivateKey = c.BizPrivKey
 	}
-	return c.ApprovalCallbackServicePrivateKey
+	k := c.ApprovalCallbackServicePrivateKey
+	if c.LoadFromFile {
+		return os.ReadFile(k)
+	} else {
+		return []byte(k), nil
+	}
 }
 
-func (c *CoSignerConfig) getCoSignerPubKey() string {
+func (c *CoSignerConfig) getCoSignerPubKey() ([]byte, error) {
 	//Supports both coSignerPubKey and apiPublKey
 	if c.CoSignerPubKey == "" {
 		c.CoSignerPubKey = c.ApiPubKey
 	}
-	return c.CoSignerPubKey
+	k := c.CoSignerPubKey
+
+	if c.LoadFromFile {
+		return os.ReadFile(k)
+	} else {
+		return []byte(k), nil
+	}
 }
 
 type CoSignerConfig struct {
@@ -38,6 +50,7 @@ type CoSignerConfig struct {
 	ApprovalCallbackServicePrivateKey string `comment:"approvalCallbackServicePrivateKey"`
 	ApiPubKey                         string `comment:"apiPubKey"`
 	BizPrivKey                        string `comment:"bizPrivKey"`
+	LoadFromFile                      bool
 }
 
 type CoSignerCallBack struct {
@@ -62,17 +75,25 @@ func (c *CoSignerConverter) RequestConvert(d CoSignerCallBack) (string, error) {
 		"timestamp":  d.Timestamp,
 		"bizContent": d.BizContent,
 	}
+	coSignerPubKey, err := c.Config.getCoSignerPubKey()
+	if err != nil {
+		return "", err
+	}
 	// Verify sign
-	verifyRet := utils.VerifySignWithRSA(serializeParams(responseStringMap), d.Sig, c.Config.getCoSignerPubKey())
+	verifyRet := utils.VerifySignWithRSA(serializeParams(responseStringMap), d.Sig, coSignerPubKey)
 	if !verifyRet {
 		return "", errors.New("CoSignerCallBack signature verification failed")
+	}
+	callbackServicePrivateKey, err := c.Config.getApprovalCallbackServicePrivateKey()
+	if err != nil {
+		return "", err
 	}
 	// Use your RSA private key to decrypt response's aesKey and aesIv
 	var plaintext []byte
 	if d.RsaType == utils.ECB_OAEP {
-		plaintext, _ = utils.DecryptWithOAEP(d.Key, c.Config.getApprovalCallbackServicePrivateKey())
+		plaintext, _ = utils.DecryptWithOAEP(d.Key, callbackServicePrivateKey)
 	} else {
-		plaintext, _ = utils.DecryptWithRSA(d.Key, c.Config.getApprovalCallbackServicePrivateKey())
+		plaintext, _ = utils.DecryptWithRSA(d.Key, callbackServicePrivateKey)
 	}
 	resAesKey := plaintext[:32]
 	resAesIv := plaintext[32:]
@@ -93,8 +114,12 @@ func (c *CoSignerConverter) RequestV3Convert(d CoSignerCallBackV3) (string, erro
 		"timestamp":  d.Timestamp,
 		"bizContent": d.BizContent,
 	}
+	coSignerPubKey, err := c.Config.getCoSignerPubKey()
+	if err != nil {
+		return "", err
+	}
 	// Verify sign
-	verifyRet := utils.VerifySignWithRSAPSS(serializeParams(responseStringMap), d.Sig, c.Config.getCoSignerPubKey())
+	verifyRet := utils.VerifySignWithRSAPSS(serializeParams(responseStringMap), d.Sig, coSignerPubKey)
 	if !verifyRet {
 		return "", errors.New("CoSignerCallBack signature verification failed")
 	}
@@ -114,9 +139,12 @@ func (c *CoSignerConverter) ResponseV3Converter(d any) (map[string]string, error
 		payLoad, _ := json.Marshal(d)
 		params["bizContent"] = base64.StdEncoding.EncodeToString(payLoad)
 	}
-
+	callbackServicePrivateKey, err := c.Config.getApprovalCallbackServicePrivateKey()
+	if err != nil {
+		return nil, err
+	}
 	// Sign the request data with your Approval Callback Service's private Key
-	signature, err := utils.SignParamsWithRSAPSS(serializeParams(params), c.Config.getApprovalCallbackServicePrivateKey())
+	signature, err := utils.SignParamsWithRSAPSS(serializeParams(params), callbackServicePrivateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -157,15 +185,22 @@ func (c *CoSignerConverter) ResponseConverter(d any) (map[string]string, error) 
 		params["bizContent"] = encryptBizContent
 	}
 
+	coSignerPubKey, err := c.Config.getCoSignerPubKey()
+	if err != nil {
+		return nil, err
+	}
 	// Use Safeheron RSA public key to encrypt request's aesKey and aesIv
-	encryptedKeyAndIv, err := utils.EncryptWithRSA(append(aesKey, aesIv...), c.Config.getCoSignerPubKey())
+	encryptedKeyAndIv, err := utils.EncryptWithRSA(append(aesKey, aesIv...), coSignerPubKey)
 	if err != nil {
 		return nil, err
 	}
 	params["key"] = encryptedKeyAndIv
-
+	callbackServicePrivateKey, err := c.Config.getApprovalCallbackServicePrivateKey()
+	if err != nil {
+		return nil, err
+	}
 	// Sign the request data with your RSA private key
-	signature, err := utils.SignParamsWithRSA(serializeParams(params), c.Config.getApprovalCallbackServicePrivateKey())
+	signature, err := utils.SignParamsWithRSA(serializeParams(params), callbackServicePrivateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -195,15 +230,22 @@ func (c *CoSignerConverter) ResponseConverterWithNewCryptoType(d any) (map[strin
 		params["bizContent"] = encryptBizContent
 	}
 
+	coSignerPubKey, err := c.Config.getCoSignerPubKey()
+	if err != nil {
+		return nil, err
+	}
 	// Use Safeheron RSA public key to encrypt request's aesKey and aesIv
-	encryptedKeyAndIv, err := utils.EncryptWithOAEP(append(aesKey, aesIv...), c.Config.getCoSignerPubKey())
+	encryptedKeyAndIv, err := utils.EncryptWithOAEP(append(aesKey, aesIv...), coSignerPubKey)
 	if err != nil {
 		return nil, err
 	}
 	params["key"] = encryptedKeyAndIv
-
+	callbackServicePrivateKey, err := c.Config.getApprovalCallbackServicePrivateKey()
+	if err != nil {
+		return nil, err
+	}
 	// Sign the request data with your RSA private key
-	signature, err := utils.SignParamsWithRSA(serializeParams(params), c.Config.getApprovalCallbackServicePrivateKey())
+	signature, err := utils.SignParamsWithRSA(serializeParams(params), callbackServicePrivateKey)
 	if err != nil {
 		return nil, err
 	}

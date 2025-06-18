@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/Safeheron/safeheron-api-sdk-go/safeheron"
-	"github.com/Safeheron/safeheron-api-sdk-go/safeheron/api"
+	"github.com/donutnomad/safeheron-api-sdk-go/safeheron"
+	"github.com/donutnomad/safeheron-api-sdk-go/safeheron/api"
 	"github.com/google/uuid"
 	"github.com/spf13/viper"
 
