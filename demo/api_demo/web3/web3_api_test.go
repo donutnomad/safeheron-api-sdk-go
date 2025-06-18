@@ -485,6 +485,7 @@ func setup() {
 		RsaPrivateKey:         viper.GetString("privateKeyPemFile"),
 		SafeheronRsaPublicKey: viper.GetString("safeheronPublicKeyPemFile"),
 		RequestTimeout:        viper.GetInt64("requestTimeout"),
+		LoadFromFile:          true,
 	}}
 
 	web3Api = api.Web3Api{Client: sc}

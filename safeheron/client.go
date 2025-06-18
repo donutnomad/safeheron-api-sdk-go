@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strconv"
@@ -21,7 +22,9 @@ import (
 )
 
 type Client struct {
-	Config ApiConfig
+	Config    ApiConfig
+	Logger    *slog.Logger
+	Transport *http.Transport
 }
 
 type SafeheronResponse struct {
@@ -35,7 +38,7 @@ type SafeheronResponse struct {
 	AesType    string `form:"aesType" json:"aesType"`
 }
 
-func (c Client) SendRequest(request any, response any, path string) error {
+func (c *Client) SendRequest(request any, response any, path string) error {
 	respContent, err := c.execute(request, path)
 	if err != nil {
 		return err
@@ -44,12 +47,19 @@ func (c Client) SendRequest(request any, response any, path string) error {
 	return err
 }
 
-func (c Client) execute(request any, endpoint string) ([]byte, error) {
+func (c *Client) logger() *slog.Logger {
+	if c.Logger == nil {
+		c.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+	return c.Logger
+}
+
+func (c *Client) execute(request any, endpoint string) ([]byte, error) {
 	// Use AES to encrypt request data
 	aesKey := make([]byte, 32)
-	rand.Read(aesKey)
+	_, _ = rand.Read(aesKey)
 	aesIv := make([]byte, 16)
-	rand.Read(aesIv)
+	_, _ = rand.Read(aesIv)
 	// Create params map
 	params := map[string]string{
 		"apiKey":    c.Config.ApiKey,
@@ -58,7 +68,7 @@ func (c Client) execute(request any, endpoint string) ([]byte, error) {
 	if request != nil {
 		payLoad, _ := json.Marshal(request)
 		data := string(payLoad)
-		log.Infof("send request data: %s", data)
+		c.logger().With("url", endpoint).With("data", data).Info("POST request data")
 		encryptBizContent, err := utils.EncryContentWithAESGCM(data, aesKey, aesIv)
 		if err != nil {
 			return nil, err
@@ -66,15 +76,24 @@ func (c Client) execute(request any, endpoint string) ([]byte, error) {
 		params["bizContent"] = encryptBizContent
 	}
 
+	safeheronRsaPublicKey, err := c.Config.GetSafeheronRsaPublicKey()
+	if err != nil {
+		return nil, err
+	}
+	pk, err := c.Config.GetRsaPrivateKey()
+	if err != nil {
+		return nil, err
+	}
+
 	// Use Safeheron RSA public key to encrypt request's aesKey and aesIv
-	encryptedKeyAndIv, err := utils.EncryptWithOAEP(append(aesKey, aesIv...), c.Config.SafeheronRsaPublicKey)
+	encryptedKeyAndIv, err := utils.EncryptWithOAEP(append(aesKey, aesIv...), safeheronRsaPublicKey)
 	if err != nil {
 		return nil, err
 	}
 	params["key"] = encryptedKeyAndIv
 
 	// Sign the request data with your RSA private key
-	signature, err := utils.SignParamsWithRSA(serializeParams(params), c.Config.RsaPrivateKey)
+	signature, err := utils.SignParamsWithRSA(serializeParams(params), pk)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +121,7 @@ func (c Client) execute(request any, endpoint string) ([]byte, error) {
 	}
 
 	// Verify sign
-	verifyRet := utils.VerifySignWithRSA(serializeParams(responseStringMap), responseStruct.Sig, c.Config.SafeheronRsaPublicKey)
+	verifyRet := utils.VerifySignWithRSA(serializeParams(responseStringMap), responseStruct.Sig, safeheronRsaPublicKey)
 	if !verifyRet {
 		return nil, errors.New("response signature verification failed")
 	}
@@ -112,9 +131,9 @@ func (c Client) execute(request any, endpoint string) ([]byte, error) {
 
 	var plaintext []byte
 	if utils.ECB_OAEP == responseStruct.RsaType {
-		plaintext, _ = utils.DecryptWithOAEP(responseStruct.Key, c.Config.RsaPrivateKey)
+		plaintext, _ = utils.DecryptWithOAEP(responseStruct.Key, pk)
 	} else {
-		plaintext, _ = utils.DecryptWithRSA(responseStruct.Key, c.Config.RsaPrivateKey)
+		plaintext, _ = utils.DecryptWithRSA(responseStruct.Key, pk)
 	}
 	resAesKey := plaintext[:32]
 	resAesIv := plaintext[32:]
@@ -129,18 +148,27 @@ func (c Client) execute(request any, endpoint string) ([]byte, error) {
 	return respContent, nil
 }
 
-func (c Client) Post(params map[string]string, path string) ([]byte, error) {
+func (c *Client) Post(params map[string]string, path string) ([]byte, error) {
+	fullPath := fmt.Sprintf("%s%s", c.Config.BaseUrl, path)
 	jsonValue, _ := json.Marshal(params)
-	tr := &http.Transport{
-		TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
+	c.logger().With("url", fullPath).With("encrypt_data", jsonValue).Debug("POST")
+
+	var transport *http.Transport
+	if c.Transport != nil {
+		transport = c.Transport
+	} else {
+		transport = &http.Transport{
+			TLSNextProto: make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
+		}
 	}
+
 	var httpClient *http.Client
 	if c.Config.RequestTimeout != 0 {
-		httpClient = &http.Client{Transport: tr, Timeout: time.Duration(c.Config.RequestTimeout) * time.Millisecond}
+		httpClient = &http.Client{Transport: transport, Timeout: time.Duration(c.Config.RequestTimeout) * time.Millisecond}
 	} else {
-		httpClient = &http.Client{Transport: tr, Timeout: 20000 * time.Millisecond}
+		httpClient = &http.Client{Transport: transport, Timeout: 20 * time.Second}
 	}
-	resp, err := httpClient.Post(fmt.Sprintf("%s%s", c.Config.BaseUrl, path), "application/json", bytes.NewBuffer(jsonValue))
+	resp, err := httpClient.Post(fullPath, "application/json", bytes.NewBuffer(jsonValue))
 	if err != nil {
 		return nil, err
 	}

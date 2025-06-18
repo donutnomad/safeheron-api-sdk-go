@@ -3,6 +3,7 @@ package webhook
 import (
 	"encoding/base64"
 	"errors"
+	"os"
 	"sort"
 	"strings"
 
@@ -16,6 +17,23 @@ type WebhookConverter struct {
 type WebHookConfig struct {
 	SafeheronWebHookRsaPublicKey string `comment:"safeheronWebHookRsaPublicKey"`
 	WebHookRsaPrivateKey         string `comment:"webHookRsaPrivateKey"`
+	LoadFromFile                 bool
+}
+
+func (c WebHookConfig) GetSafeheronWebHookRsaPublicKey() ([]byte, error) {
+	if c.LoadFromFile {
+		return os.ReadFile(c.SafeheronWebHookRsaPublicKey)
+	} else {
+		return []byte(c.SafeheronWebHookRsaPublicKey), nil
+	}
+}
+
+func (c WebHookConfig) GetWebHookRsaPrivateKey() ([]byte, error) {
+	if c.LoadFromFile {
+		return os.ReadFile(c.WebHookRsaPrivateKey)
+	} else {
+		return []byte(c.WebHookRsaPrivateKey), nil
+	}
 }
 
 type WebHook struct {
@@ -38,17 +56,25 @@ func (c *WebhookConverter) Convert(d WebHook) (string, error) {
 		"timestamp":  d.Timestamp,
 		"bizContent": d.BizContent,
 	}
+	sfRsaPublicKey, err := c.Config.GetSafeheronWebHookRsaPublicKey()
+	if err != nil {
+		return "", errors.New("parse webhook rsa public key failed")
+	}
+	rsaPrivateKey, err := c.Config.GetWebHookRsaPrivateKey()
+	if err != nil {
+		return "", errors.New("parse webhook rsa private key failed")
+	}
 	// Verify sign
-	verifyRet := utils.VerifySignWithRSA(serializeParams(responseStringMap), d.Sig, c.Config.SafeheronWebHookRsaPublicKey)
+	verifyRet := utils.VerifySignWithRSA(serializeParams(responseStringMap), d.Sig, sfRsaPublicKey)
 	if !verifyRet {
 		return "", errors.New("webhook signature verification failed")
 	}
 	// Use your RSA private key to decrypt response's aesKey and aesIv
 	var plaintext []byte
 	if d.RsaType == utils.ECB_OAEP {
-		plaintext, _ = utils.DecryptWithOAEP(d.Key, c.Config.WebHookRsaPrivateKey)
+		plaintext, _ = utils.DecryptWithOAEP(d.Key, rsaPrivateKey)
 	} else {
-		plaintext, _ = utils.DecryptWithRSA(d.Key, c.Config.WebHookRsaPrivateKey)
+		plaintext, _ = utils.DecryptWithRSA(d.Key, rsaPrivateKey)
 	}
 
 	resAesKey := plaintext[:32]

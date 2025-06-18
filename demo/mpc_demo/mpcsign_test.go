@@ -203,6 +203,7 @@ func setup() {
 		ApiKey:                viper.GetString("apiKey"),
 		RsaPrivateKey:         viper.GetString("privateKeyPemFile"),
 		SafeheronRsaPublicKey: viper.GetString("safeheronPublicKeyPemFile"),
+		LoadFromFile:          true,
 	}}
 
 	mpcSignApi = api.MpcSignApi{Client: sc}
