@@ -17,8 +17,6 @@ import (
 	"time"
 
 	"github.com/donutnomad/safeheron-api-sdk-go/safeheron/utils"
-
-	log "github.com/sirupsen/logrus"
 )
 
 type Client struct {
@@ -68,7 +66,7 @@ func (c *Client) execute(request any, endpoint string) ([]byte, error) {
 	if request != nil {
 		payLoad, _ := json.Marshal(request)
 		data := string(payLoad)
-		c.logger().With("url", endpoint).With("data", data).Info("POST request data")
+		c.logger().Info("POST request", "url", fmt.Sprintf("%s%s", c.Config.BaseUrl, endpoint), "plain_data", data)
 		encryptBizContent, err := utils.EncryContentWithAESGCM(data, aesKey, aesIv)
 		if err != nil {
 			return nil, err
@@ -108,7 +106,7 @@ func (c *Client) execute(request any, endpoint string) ([]byte, error) {
 	var responseStruct SafeheronResponse
 	json.Unmarshal(safeheronResponse, &responseStruct)
 	if responseStruct.Code != 200 {
-		log.Warnf("request failed: %d, message: %s", responseStruct.Code, responseStruct.Message)
+		c.logger().Warn("request failed", "url", fmt.Sprintf("%s%s", c.Config.BaseUrl, endpoint), "code", responseStruct.Code, "message", responseStruct.Message)
 		return nil, fmt.Errorf("request failed, code: %d, message: %s", responseStruct.Code, responseStruct.Message)
 	}
 
@@ -145,13 +143,15 @@ func (c *Client) execute(request any, endpoint string) ([]byte, error) {
 	} else {
 		respContent, _ = utils.NewCBCDecrypter(resAesKey, resAesIv, ciphertext)
 	}
+	c.logger().Info("POST request Response", "url", fmt.Sprintf("%s%s", c.Config.BaseUrl, endpoint), "plain_data", string(respContent))
+
 	return respContent, nil
 }
 
 func (c *Client) Post(params map[string]string, path string) ([]byte, error) {
 	fullPath := fmt.Sprintf("%s%s", c.Config.BaseUrl, path)
 	jsonValue, _ := json.Marshal(params)
-	c.logger().With("url", fullPath).With("encrypt_data", jsonValue).Debug("POST")
+	c.logger().Debug("POST request(encrypt)", "url", fullPath, "encrypt_data", string(jsonValue))
 
 	var transport *http.Transport
 	if c.Transport != nil {
@@ -172,12 +172,17 @@ func (c *Client) Post(params map[string]string, path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if resp.StatusCode != 200 {
+		c.logger().Error("POST request safeheron api response", "url", path, "statusCode", resp.StatusCode, "status", resp.Status)
+		return nil, fmt.Errorf("POST request safeheron api response, statusCode: %d, status: %s", resp.StatusCode, resp.Status)
+	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Errorf("request safeheron api error, api: %s", path)
+		c.logger().Error("request safeheron api error", "url", path, "statusCode", resp.StatusCode, "status", resp.Status, "err", err)
 		return nil, err
 	}
+	c.logger().Debug("POST request Response(encrypt)", "url", fullPath, "encrypt_data", string(body))
 
 	return body, nil
 }
